@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>さかさま不動産クエスト | ブラウザ版プロトタイプ</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f5f6f8;
+        color: #222;
+        margin: 0;
+      }
+      .container {
+        max-width: 760px;
+        margin: 24px auto;
+        padding: 16px;
+      }
+      .tabs {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+      }
+      .tabs button,
+      button {
+        border: 1px solid #c5c8cf;
+        background: white;
+        border-radius: 10px;
+        padding: 8px 12px;
+        cursor: pointer;
+      }
+      .tabs button.active {
+        background: #1f6feb;
+        color: white;
+        border-color: #1f6feb;
+      }
+      .card {
+        background: white;
+        border: 1px solid #e4e7ec;
+        border-radius: 12px;
+        padding: 16px;
+      }
+      label {
+        display: block;
+        margin-top: 10px;
+        font-weight: 600;
+      }
+      input,
+      textarea {
+        width: 100%;
+        padding: 8px;
+        margin-top: 6px;
+        border: 1px solid #cfd5de;
+        border-radius: 8px;
+      }
+      textarea {
+        min-height: 80px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+      }
+      .muted { color: #5b6575; }
+      .hidden { display: none; }
+      .event {
+        margin-top: 10px;
+        border-left: 4px solid #1f6feb;
+        padding-left: 10px;
+      }
+      code {
+        background: #f1f3f7;
+        padding: 2px 6px;
+        border-radius: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>さかさま不動産クエスト（ブラウザ版プロトタイプ）</h1>
+      <p class="muted">ターミナル不要。ファイルをブラウザで開くだけで試せます。</p>
+
+      <div class="tabs">
+        <button id="tab-profile" class="active">1) Profile</button>
+        <button id="tab-status">2) Status</button>
+        <button id="tab-quest">3) Quest</button>
+      </div>
+
+      <section id="view-profile" class="card">
+        <h2>/profile</h2>
+        <label>年齢<input id="age" type="number" min="0" value="30" /></label>
+        <label>経験年数<input id="experienceYears" type="number" min="0" value="0" /></label>
+        <label>DIYスキル（0-5）<input id="diySkill" type="number" min="0" max="5" value="0" /></label>
+        <label>時間余裕（0-5）<input id="timeMargin" type="number" min="0" max="5" value="0" /></label>
+        <label>お金余裕（0-5）<input id="moneyMargin" type="number" min="0" max="5" value="0" /></label>
+        <div class="row">
+          <button id="saveProfile">保存</button>
+          <button id="goStatus">/statusへ</button>
+          <button id="goQuest">/questへ</button>
+        </div>
+        <p id="savedMsg" class="muted"></p>
+      </section>
+
+      <section id="view-status" class="card hidden">
+        <h2>/status</h2>
+        <div id="statusBody"></div>
+        <div class="row">
+          <button id="statusToProfile">/profileへ</button>
+          <button id="statusToQuest">/questへ</button>
+        </div>
+      </section>
+
+      <section id="view-quest" class="card hidden">
+        <h2>/quest</h2>
+        <div id="questBody"></div>
+        <div class="row">
+          <button id="startResume">開始/再開</button>
+          <button id="nextQuest">次へ進む</button>
+          <button id="resetQuest">リセット</button>
+        </div>
+        <p class="muted">保存キー: <code>sakasama.quest.currentId</code></p>
+      </section>
+    </div>
+
+    <script>
+      const KEYS = {
+        profile: "sakasama.profile",
+        savedAt: "sakasama.profile.savedAt",
+        questCurrentId: "sakasama.quest.currentId",
+      };
+
+      const tabs = {
+        profile: document.getElementById("tab-profile"),
+        status: document.getElementById("tab-status"),
+        quest: document.getElementById("tab-quest"),
+      };
+      const views = {
+        profile: document.getElementById("view-profile"),
+        status: document.getElementById("view-status"),
+        quest: document.getElementById("view-quest"),
+      };
+
+      const getProfile = () => {
+        try {
+          const raw = localStorage.getItem(KEYS.profile);
+          return raw ? JSON.parse(raw) : null;
+        } catch {
+          return null;
+        }
+      };
+
+      const hasSavedProfile = () => Boolean(getProfile() && localStorage.getItem(KEYS.savedAt));
+
+      function show(name) {
+        Object.entries(views).forEach(([k, el]) => {
+          el.classList.toggle("hidden", k !== name);
+          tabs[k].classList.toggle("active", k === name);
+        });
+
+        if (name === "status") renderStatus();
+        if (name === "quest") renderQuest();
+      }
+
+      function clamp(v) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return 0;
+        return Math.max(0, Math.min(5, n));
+      }
+
+      function saveProfile() {
+        const profile = {
+          age: Math.max(0, Math.floor(Number(document.getElementById("age").value || 0))),
+          experienceYears: Math.max(0, Math.floor(Number(document.getElementById("experienceYears").value || 0))),
+          diySkill: clamp(document.getElementById("diySkill").value),
+          timeMargin: clamp(document.getElementById("timeMargin").value),
+          moneyMargin: clamp(document.getElementById("moneyMargin").value),
+        };
+        localStorage.setItem(KEYS.profile, JSON.stringify(profile));
+        const savedAt = new Date().toISOString();
+        localStorage.setItem(KEYS.savedAt, savedAt);
+        document.getElementById("savedMsg").textContent = `保存しました: ${new Date(savedAt).toLocaleString("ja-JP")}`;
+      }
+
+      function loadProfileForm() {
+        const p = getProfile();
+        if (!p) return;
+        document.getElementById("age").value = p.age ?? 30;
+        document.getElementById("experienceYears").value = p.experienceYears ?? 0;
+        document.getElementById("diySkill").value = p.diySkill ?? 0;
+        document.getElementById("timeMargin").value = p.timeMargin ?? 0;
+        document.getElementById("moneyMargin").value = p.moneyMargin ?? 0;
+      }
+
+      function renderStatus() {
+        const el = document.getElementById("statusBody");
+        if (!hasSavedProfile()) {
+          el.innerHTML = `<p>プロフィール未保存です。/profile で保存してください。</p>`;
+          return;
+        }
+        const p = getProfile();
+        const savedAt = localStorage.getItem(KEYS.savedAt);
+        el.innerHTML = `
+          <ul>
+            <li>年齢: ${p.age}</li>
+            <li>経験年数: ${p.experienceYears}</li>
+            <li>DIYスキル: ${p.diySkill}</li>
+            <li>時間余裕: ${p.timeMargin}</li>
+            <li>お金余裕: ${p.moneyMargin}</li>
+          </ul>
+          <p class="muted">保存時刻: ${new Date(savedAt).toLocaleString("ja-JP")}</p>
+        `;
+      }
+
+      function loadQuestId() {
+        const raw = localStorage.getItem(KEYS.questCurrentId);
+        const n = Number(raw || 1);
+        return Number.isFinite(n) && n > 0 ? n : 1;
+      }
+
+      function renderQuest() {
+        const el = document.getElementById("questBody");
+        if (!hasSavedProfile()) {
+          el.innerHTML = `<p>プロフィール未保存です。/profile で保存してください。</p>`;
+          return;
+        }
+        const id = loadQuestId();
+        el.innerHTML = `<p>現在のクエストID: <strong>${id}</strong></p>`;
+      }
+
+      tabs.profile.onclick = () => show("profile");
+      tabs.status.onclick = () => show("status");
+      tabs.quest.onclick = () => show("quest");
+
+      document.getElementById("saveProfile").onclick = saveProfile;
+      document.getElementById("goStatus").onclick = () => show("status");
+      document.getElementById("goQuest").onclick = () => show("quest");
+      document.getElementById("statusToProfile").onclick = () => show("profile");
+      document.getElementById("statusToQuest").onclick = () => show("quest");
+
+      document.getElementById("startResume").onclick = () => {
+        if (!hasSavedProfile()) return show("profile");
+        localStorage.setItem(KEYS.questCurrentId, String(loadQuestId()));
+        renderQuest();
+      };
+      document.getElementById("nextQuest").onclick = () => {
+        if (!hasSavedProfile()) return show("profile");
+        localStorage.setItem(KEYS.questCurrentId, String(loadQuestId() + 1));
+        renderQuest();
+      };
+      document.getElementById("resetQuest").onclick = () => {
+        localStorage.setItem(KEYS.questCurrentId, "1");
+        renderQuest();
+      };
+
+      loadProfileForm();
+      renderStatus();
+      renderQuest();
+    </script>
+  </body>
+</html>
